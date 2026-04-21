@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import logging
+import random
 import socket
 import threading
 import time
@@ -45,6 +46,14 @@ class ReliableChannel:
     last_seen_at: float = field(default_factory=time.monotonic, init=False)
     stats: ChannelStats = field(default_factory=ChannelStats, init=False)
 
+    def rebind_socket(self, sock: socket.socket) -> None:
+        with self._send_lock:
+            with self._state_lock:
+                for event in self._pending_ack.values():
+                    event.set()
+                self._pending_ack.clear()
+                self.sock = sock
+
     def update_remote(self, remote_addr: Address) -> None:
         with self._state_lock:
             self.remote_addr = remote_addr
@@ -67,6 +76,7 @@ class ReliableChannel:
             )
             datagram = packet.encode()
 
+            timeout = self.timeout_seconds
             for attempt in range(1, self.max_retries + 1):
                 try:
                     self.sock.sendto(datagram, self.remote_addr)
@@ -75,7 +85,8 @@ class ReliableChannel:
                         self._pending_ack.pop(sequence, None)
                     raise TransportError(f"socket send failed: {exc}") from exc
                 self.stats.packets_sent += 1
-                if event.wait(self.timeout_seconds):
+                wait_timeout = timeout * (0.85 + 0.3 * random.random())
+                if event.wait(wait_timeout):
                     with self._state_lock:
                         self._pending_ack.pop(sequence, None)
                     return sequence
@@ -88,6 +99,7 @@ class ReliableChannel:
                     attempt,
                     self.max_retries,
                 )
+                timeout = min(timeout * 1.6, 3.0)
 
             with self._state_lock:
                 self._pending_ack.pop(sequence, None)
@@ -111,6 +123,9 @@ class ReliableChannel:
         self.stats.acks_sent += 1
 
     def accept(self, packet: Packet, addr: Address) -> Packet | None:
+        if packet.client_id != self.client_id:
+            return None
+
         self.update_remote(addr)
         self.last_seen_at = time.monotonic()
         self.stats.packets_received += 1

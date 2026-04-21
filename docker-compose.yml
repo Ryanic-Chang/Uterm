@@ -1,0 +1,7 @@
+services:
+  uterm:
+    build: .
+    command: ["uterm-api", "--host", "0.0.0.0", "--port", "8080", "--udp-host", "0.0.0.0", "--udp-port", "9527", "--log-level", "INFO"]
+    ports:
+      - "9527:9527/udp"
+      - "8080:8080"

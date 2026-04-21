@@ -48,17 +48,21 @@ The server runs best on Linux or macOS, where PTY support enables advanced termi
 - ACK-based confirmation for all non-ACK packets
 - Retransmission on timeout and duplicate detection by sequence number
 - Safe upper bound on UDP payload size to avoid fragmentation
+- Adaptive retransmission: ACK waiting uses jitter + exponential backoff to reduce timeout storms
+- Background sending: GUI input never blocks; bounded send queue prevents lockups under loss/congestion
 
 #### 💻 Terminal Experience
 - Real-time output streaming from the server to the GUI
 - ANSI escape handling through `pyte`, avoiding raw control-sequence garbage
 - Support for `Enter`, `Backspace`, `Tab`, `Ctrl+C`, arrow keys, and more
 - Terminal resize reporting from client to server
+- MobaXterm-like input feel: type directly in the terminal area with server-side echo and proper control handling
 
 #### ⚙️ Operations
 - Multi-client concurrency without session crossover
 - Heartbeat every 5 seconds with offline detection and server-side cleanup
 - Graceful handling of unreachable peers and broken transport
+- Output decoupling: server streams output via a dedicated queue/thread to avoid blocking the receive loop
 
 ### 🏗️ System Architecture
 
@@ -139,6 +143,7 @@ Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
+*(Note: For environments like MSYS2 / MinGW, executables might be located in `.venv/bin` instead of `Scripts`. In that case, use `.\.venv\bin\activate` or specify the python path directly, e.g. `.\.venv\bin\python.exe -m pip install -e .[dev]`)*
 
 Linux / macOS:
 ```bash
@@ -147,22 +152,75 @@ source .venv/bin/activate
 ```
 
 #### 3. Install Uterm
+After activating the virtual environment, run:
 ```bash
-python -m pip install -e .[dev]
+pip install -e .[dev]
 ```
+*(Note: If you encounter issues activating the environment, you can use the python executable inside the environment directly. For example: `.\.venv\Scripts\python.exe -m pip install -e .[dev]` on Windows, or `.venv/bin/python -m pip install -e .[dev]` on Linux)*
 
 ### 🚀 Usage
 
 #### Start the server
+With the virtual environment activated, run:
 ```bash
 uterm-server --host 0.0.0.0 --port 9527
 ```
+*(Note: If the environment is not activated, you can run the executable directly, e.g. `.\.venv\Scripts\uterm-server.exe` or `.\.venv\bin\uterm-server`)*
 
 #### Start the GUI client
+With the virtual environment activated, run:
 ```bash
 uterm-gui
 ```
+*(Note: Similarly, if the command is not found, use the direct path, e.g. `.\.venv\Scripts\uterm-gui.exe` or `.\.venv\bin\uterm-gui`)*
 Then enter the server IP, port, and a unique client ID, and click **连接** (Connect).
+
+### 🌐 Remote Server Deployment & Port Forwarding
+
+If you deploy the server on a cloud provider (e.g., AWS, Azure, Aliyun), you must **open the UDP port** (default `9527`), otherwise the client will timeout connecting.
+
+1. **Cloud Security Group Configuration**
+   Go to your cloud provider's console -> Security Groups / Firewall -> Add an **Inbound** rule:
+   - Protocol: `UDP`
+   - Port Range: `9527`
+   - Source: `0.0.0.0/0` (or your specific IP)
+
+2. **OS Firewall Configuration**
+   - **Ubuntu / Debian (ufw)**:
+     ```bash
+     sudo ufw allow 9527/udp
+     ```
+   - **CentOS / RHEL (firewalld)**:
+     ```bash
+     sudo firewall-cmd --zone=public --add-port=9527/udp --permanent
+     sudo firewall-cmd --reload
+     ```
+   - **iptables**:
+     ```bash
+     sudo iptables -A INPUT -p udp --dport 9527 -j ACCEPT
+     ```
+
+### 🧭 Host Info Panel
+
+The GUI renders a host info panel on the left side of the terminal area. The server periodically reports:
+
+- hostname / username / current working directory / timestamp
+
+### 🧩 Management API (OpenAPI)
+
+Install the API extra and start the management API (Swagger UI + OpenAPI 3.0):
+
+```bash
+pip install -e .[api]
+uterm-api --host 0.0.0.0 --port 8080 --udp-host 0.0.0.0 --udp-port 9527
+```
+
+- Swagger UI: `http://<server-ip>:8080/docs`
+- OpenAPI: `http://<server-ip>:8080/openapi.json`
+
+### 🐳 Docker Deployment
+
+See [DEPLOYMENT.md](file:///d:/Ryan/Desktop/Uterm/docs/DEPLOYMENT.md).
 
 ### 💡 Usage Examples
 

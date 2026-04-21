@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+import json
 import queue
 import random
 import tkinter.font as tkfont
@@ -27,13 +29,21 @@ class UtermApp(ctk.CTk):
         self._terminal_dirty = False
         self._resize_after_id: str | None = None
         self._terminal_size = (30, 100)
+        self._meta_buffer = b""
+        self._info = {
+            "hostname": "-",
+            "username": "-",
+            "cwd": "-",
+            "timestamp": "-",
+        }
 
         self._build_layout()
         self.after(50, self._process_events)
         self.after(300, self._sync_terminal_size)
 
     def _build_layout(self) -> None:
-        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=4)
         self.grid_rowconfigure(0, weight=1)
 
         sidebar = ctk.CTkFrame(self, corner_radius=18)
@@ -137,28 +147,72 @@ class UtermApp(ctk.CTk):
         terminal_card = ctk.CTkFrame(content, corner_radius=16)
         terminal_card.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 18))
         terminal_card.grid_rowconfigure(1, weight=1)
-        terminal_card.grid_columnconfigure(0, weight=1)
+        terminal_card.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
             terminal_card,
             text="交互终端",
             font=ctk.CTkFont(size=15, weight="bold"),
-        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 8))
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 8), columnspan=2)
+
+        info_panel = ctk.CTkFrame(terminal_card, corner_radius=14)
+        info_panel.grid(row=1, column=0, sticky="nsw", padx=(16, 10), pady=(0, 16))
+        info_panel.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            info_panel,
+            text="主机信息",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 8))
+
+        self._info_labels: dict[str, ctk.CTkLabel] = {}
+        self._info_labels["hostname"] = self._info_row(info_panel, 1, "主机名", self._info["hostname"])
+        self._info_labels["username"] = self._info_row(info_panel, 2, "用户名", self._info["username"])
+        self._info_labels["cwd"] = self._info_row(info_panel, 3, "路径", self._info["cwd"])
+        self._info_labels["timestamp"] = self._info_row(info_panel, 4, "时间", self._info["timestamp"])
+        self._info_labels["local"] = self._info_row(
+            info_panel, 5, "本地", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
 
         self.terminal = ctk.CTkTextbox(
             terminal_card,
-            wrap="none",
+            wrap="word",
             corner_radius=14,
             font=ctk.CTkFont(family="Cascadia Mono", size=13),
         )
-        self.terminal.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
-        self.terminal.configure(state="disabled")
+        self.terminal.grid(row=1, column=1, sticky="nsew", padx=(10, 16), pady=(0, 16))
+        self.terminal.configure(state="normal")
 
         inner = self.terminal._textbox
         inner.bind("<KeyPress>", self._on_keypress)
+        for key in ("<Up>", "<Down>", "<Left>", "<Right>", "<Return>", "<BackSpace>", "<Tab>", "<Delete>", "<Control-c>"):
+            inner.bind(key, self._on_keypress)
         inner.bind("<Button-1>", lambda _event: inner.focus_set())
         inner.bind("<<Paste>>", self._on_paste)
+        inner.bind("<<Copy>>", self._on_copy)
+        if self._is_mac():
+            inner.bind("<Button-2>", self._show_context_menu)
+        else:
+            inner.bind("<Button-3>", self._show_context_menu)
         inner.bind("<Configure>", self._schedule_terminal_resize)
+
+        self._context_menu = self._create_context_menu()
+
+    def _is_mac(self) -> bool:
+        import sys
+        return sys.platform == "darwin"
+
+    def _create_context_menu(self) -> Any:
+        import tkinter as tk
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="复制 (Copy)", command=lambda: self._on_copy(None))
+        menu.add_command(label="粘贴 (Paste)", command=lambda: self._on_paste(None))
+        return menu
+
+    def _show_context_menu(self, event: Any) -> str:
+        self._context_menu.tk_popup(event.x_root, event.y_root)
+        return "break"
+
 
     def _labeled_entry(self, parent: ctk.CTkBaseClass, label: str, value: str, *, row: int) -> ctk.CTkEntry:
         ctk.CTkLabel(
@@ -221,8 +275,10 @@ class UtermApp(ctk.CTk):
                 break
 
             if kind == "output":
-                self.terminal_buffer.feed(payload)
-                self._terminal_dirty = True
+                remaining = self._consume_output_bytes(payload)
+                if remaining:
+                    self.terminal_buffer.feed(remaining)
+                    self._terminal_dirty = True
             elif kind == "status":
                 self._append_log(str(payload))
                 self._update_status_label(str(payload))
@@ -234,15 +290,113 @@ class UtermApp(ctk.CTk):
 
     def _render_terminal(self) -> None:
         self._terminal_dirty = False
-        snapshot = self.terminal_buffer.snapshot()
-        self.terminal.configure(state="normal")
+        try:
+            lines, cursor_y, cursor_x = self.terminal_buffer.get_lines_and_cursor()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error(f"Failed to render terminal buffer: {exc}", exc_info=True)
+            return
+
         self.terminal.delete("1.0", "end")
-        self.terminal.insert("1.0", snapshot)
-        self.terminal.configure(state="disabled")
+        
+        # Apply plain text and colors
+        for y, line_dict in enumerate(lines):
+            line_text = ""
+            for x in range(self.terminal_buffer.columns):
+                char_obj = line_dict.get(x)
+                if char_obj:
+                    line_text += char_obj.data
+                else:
+                    line_text += " "
+            
+            # Avoid inserting trailing newline for the last line
+            if y == len(lines) - 1:
+                self.terminal.insert("end", line_text)
+            else:
+                self.terminal.insert("end", line_text + "\n")
+            
+            current_tag = None
+            start_idx = 0
+            for x in range(self.terminal_buffer.columns):
+                char_obj = line_dict.get(x)
+                if char_obj and (char_obj.fg != "default" or char_obj.bg != "default"):
+                    tag_name = f"fg_{char_obj.fg}_bg_{char_obj.bg}"
+                    if current_tag != tag_name:
+                        if current_tag:
+                            self.terminal.tag_add(current_tag, f"{y+1}.{start_idx}", f"{y+1}.{x}")
+                        current_tag = tag_name
+                        start_idx = x
+                        
+                    # Configure the tag if not exists
+                    try:
+                        self.terminal.tag_config(tag_name, foreground=char_obj.fg if char_obj.fg != "default" else None, background=char_obj.bg if char_obj.bg != "default" else None)
+                    except Exception:
+                        pass
+                else:
+                    if current_tag:
+                        self.terminal.tag_add(current_tag, f"{y+1}.{start_idx}", f"{y+1}.{x}")
+                        current_tag = None
+            if current_tag:
+                self.terminal.tag_add(current_tag, f"{y+1}.{start_idx}", f"{y+1}.{self.terminal_buffer.columns}")
+
+        self.terminal.see("end")
+        
+        # Sync cursor position
+        cursor_index = f"{cursor_y + 1}.{cursor_x}"
+        self.terminal.mark_set("insert", cursor_index)
+        self.terminal.see("insert")
 
     def _append_log(self, message: str) -> None:
         self.log_box.insert("end", f"{message}\n")
         self.log_box.see("end")
+
+    def _info_row(self, parent: ctk.CTkBaseClass, row: int, key: str, value: str) -> ctk.CTkLabel:
+        ctk.CTkLabel(parent, text=key, text_color=("gray35", "gray75")).grid(
+            row=row * 2 - 1, column=0, sticky="w", padx=12, pady=(8, 2)
+        )
+        label = ctk.CTkLabel(parent, text=value, justify="left")
+        label.grid(row=row * 2, column=0, sticky="w", padx=12, pady=(0, 2))
+        return label
+
+    def _set_info(self, data: dict[str, Any]) -> None:
+        for key in ("hostname", "username", "cwd", "timestamp"):
+            value = data.get(key)
+            if value is None:
+                continue
+            self._info[key] = str(value)
+            label = self._info_labels.get(key)
+            if label is not None:
+                label.configure(text=self._info[key])
+
+        local_label = self._info_labels.get("local")
+        if local_label is not None:
+            local_label.configure(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    def _consume_output_bytes(self, chunk: bytes) -> bytes:
+        if not chunk:
+            return b""
+        data = self._meta_buffer + chunk
+        self._meta_buffer = b""
+
+        prefix = b"\x1b]9;UTERM_META:"
+        while True:
+            start = data.find(prefix)
+            if start == -1:
+                return data
+            end = data.find(b"\x07", start + len(prefix))
+            if end == -1:
+                self._meta_buffer = data[start:]
+                return data[:start]
+
+            meta_raw = data[start + len(prefix) : end]
+            try:
+                meta = json.loads(meta_raw.decode("utf-8", errors="ignore"))
+                if isinstance(meta, dict):
+                    self._set_info(meta)
+            except Exception:
+                pass
+
+            data = data[:start] + data[end + 1 :]
 
     def _update_status_label(self, message: str) -> None:
         connected = self.connection is not None
@@ -263,22 +417,55 @@ class UtermApp(ctk.CTk):
         if self.connection is None:
             return "break"
 
+        control_pressed = bool(event.state & 0x4)
+        if control_pressed and event.keysym.lower() == "c":
+            if self.terminal._textbox.tag_ranges("sel"):
+                self._on_copy(event)
+                return "break"
+            else:
+                self.connection.send_signal(2)
+                return "break"
+        
+        # If the input method or OS translates it to \x03 directly without the Ctrl state being cleanly captured
+        if event.char == "\x03":
+            if self.terminal._textbox.tag_ranges("sel"):
+                self._on_copy(event)
+                return "break"
+            else:
+                self.connection.send_signal(2)
+                return "break"
+
         data = self._translate_key(event)
         if data:
             self.connection.send_bytes(data)
+        
+        # Raw mode: always return "break" to disable local echo/editing
         return "break"
 
     def _on_paste(self, _event: Any) -> str:
         if self.connection is not None:
-            pasted = self.clipboard_get()
-            self.connection.send_bytes(pasted.encode("utf-8"))
+            try:
+                pasted = self.clipboard_get()
+                self.connection.send_bytes(pasted.encode("utf-8"))
+            except Exception:
+                pass
+        return "break"
+
+    def _on_copy(self, _event: Any) -> str:
+        try:
+            if self.terminal._textbox.tag_ranges("sel"):
+                selected_text = self.terminal._textbox.get("sel.first", "sel.last")
+                self.clipboard_clear()
+                self.clipboard_append(selected_text)
+        except Exception:
+            pass
         return "break"
 
     def _translate_key(self, event: Any) -> bytes | None:
         control_pressed = bool(event.state & 0x4)
         special = {
             "Return": b"\r",
-            "BackSpace": b"\x7f",
+            "BackSpace": b"\x08",
             "Tab": b"\t",
             "Escape": b"\x1b",
             "Up": b"\x1b[A",
@@ -293,17 +480,21 @@ class UtermApp(ctk.CTk):
             "Insert": b"\x1b[2~",
         }
 
-        if event.keysym in ("Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R"):
+        if event.keysym in ("Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Caps_Lock", "Num_Lock", "Scroll_Lock"):
             return None
 
-        if control_pressed and event.keysym.lower() == "c":
-            return b"\x03"
+        if control_pressed and len(event.keysym) == 1:
+            if event.keysym.lower() == "c":
+                return None
+            char_code = ord(event.keysym.lower()) - ord('a') + 1
+            if 1 <= char_code <= 26:
+                return bytes([char_code])
 
         if event.keysym in special:
             return special[event.keysym]
 
         if event.char:
-            return event.char.encode("utf-8")
+            return event.char.encode("utf-8", errors="ignore")
 
         return None
 

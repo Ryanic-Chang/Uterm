@@ -34,12 +34,14 @@ def test_end_to_end_command_execution() -> None:
 
     try:
         client.start()
+        # 考虑到 \r 和 \n 的各种映射处理，直接输入完整指令加上 \r 即可触发命令执行
         client.send_bytes(b"echo uterm-integration\r")
 
+        # 放宽匹配条件，只要包含目标字符串即视为成功执行并拿到了输出
         assert _wait_for(
             lambda: b"uterm-integration" in b"".join(outputs),
             timeout=10.0,
-        ), f"command output not observed, statuses={statuses!r}"
+        ), f"command output not observed, statuses={statuses!r}, outputs={outputs!r}"
     finally:
         client.close()
         server.stop()

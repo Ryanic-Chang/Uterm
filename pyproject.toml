@@ -29,17 +29,22 @@ classifiers = [
 ]
 dependencies = [
   "customtkinter>=5.2.2",
-  "pyte>=0.8.2",
+  "pyte>=0.8.0,<0.9.0",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=9.0.0",
 ]
+api = [
+  "fastapi>=0.115.0",
+  "uvicorn>=0.30.0",
+]
 
 [project.scripts]
 uterm-gui = "uterm.app:main"
 uterm-server = "uterm.server:main"
+uterm-api = "uterm.api:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/uterm"]

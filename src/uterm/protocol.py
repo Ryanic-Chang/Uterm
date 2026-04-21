@@ -20,11 +20,15 @@ class MessageType(IntEnum):
     COMMAND_OUTPUT = 0x02
     ACK = 0x03
     HEARTBEAT = 0x04
+    DISCONNECT = 0x05
 
 
 class InputKind(IntEnum):
     DATA = 0x01
     RESIZE = 0x02
+    INFO = 0x03
+    HISTORY_APPEND = 0x04
+    SIGNAL = 0x05
 
 
 @dataclass(slots=True, frozen=True)
@@ -102,6 +106,25 @@ def parse_resize_payload(payload: bytes) -> tuple[int, int]:
         raise ProtocolError("resize payload must contain 4 bytes")
     rows, columns = struct.unpack("!HH", payload)
     return rows, columns
+
+
+def build_info_payload() -> bytes:
+    return bytes((InputKind.INFO,))
+
+
+def build_signal_payload(signum: int) -> bytes:
+    return bytes((InputKind.SIGNAL,)) + struct.pack("!i", signum)
+
+
+def parse_signal_payload(payload: bytes) -> int:
+    if len(payload) != 4:
+        raise ProtocolError("signal payload must contain 4 bytes")
+    return struct.unpack("!i", payload)[0]
+
+
+def build_history_append_payload(command: str) -> bytes:
+    raw = command.encode("utf-8", errors="ignore")
+    return bytes((InputKind.HISTORY_APPEND,)) + raw
 
 
 def chunk_bytes(data: bytes, chunk_size: int = MAX_PAYLOAD_SIZE) -> list[bytes]:

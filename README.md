@@ -48,18 +48,22 @@ Uterm 由两个协同工作的组件构成：
 - 为所有非 ACK 报文提供 ACK 确认机制与超时自动重传
 - 基于序列号的重复包检测与丢弃
 - 设定安全的 UDP 载荷上限，避免 IP 层分片
+- 📶 自适应重传：ACK 等待时间带抖动与指数退避，降低网络抖动/丢包时的超时风暴
+- 🧵 后台发送：GUI 输入不阻塞，发送队列有上限并在拥塞时提示丢弃，避免卡死
 
 #### 💻 终端体验
 - 服务端至 GUI 的实时输出流式传输
 - 通过 `pyte` 库处理 ANSI 转义序列，避免控制字符乱码
 - 完善的按键支持：`Enter`, `Backspace`, `Tab`, `Ctrl+C`, 方向键，以及 `Home`, `End`, `Delete`, `PageUp`, `PageDown`
 - 客户端向服务端实时汇报终端窗口大小变更
+- ✅ 类 MobaXterm 输入体验：在终端区直接输入，服务端即时回显；退格与回车按终端语义处理
 
 #### ⚙️ 运维与健壮性
 - 多客户端并发互不干扰
 - 客户端每 5 秒发送一次心跳包
 - 服务端离线检测与过期会话清理
 - 优雅处理网络中断与不可达的对端节点
+- 🛰️ 输出解耦：服务端输出回传使用独立队列与线程，避免大输出时阻塞接收循环导致丢包
 
 ### 🏗️ 系统架构
 
@@ -143,7 +147,7 @@ cd Uterm
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
-*(注：MSYS2 / MinGW 环境可能将可执行文件放在 `.venv/bin` 下)*
+*(注：如果您使用的是 MSYS2 / MinGW 或其他特殊环境，虚拟环境的可执行文件可能位于 `.venv/bin` 目录下，此时需使用 `.\.venv\bin\activate` 或手动指定 Python 路径，例如直接使用 `.\.venv\bin\python.exe -m pip install -e .[dev]`)*
 
 **Linux / macOS:**
 
@@ -154,17 +158,22 @@ source .venv/bin/activate
 
 #### 3. 安装 Uterm
 
+在激活虚拟环境后，执行以下命令：
+
 ```bash
-python -m pip install -e .[dev]
+pip install -e .[dev]
 ```
+*(注：如果未能激活环境，可以直接使用环境中的绝对路径，例如 Windows 下的 `.\.venv\Scripts\python.exe -m pip install -e .[dev]` 或 Linux 下的 `.venv/bin/python -m pip install -e .[dev]`)*
 
 ### 🚀 使用说明
 
 #### 启动服务端
 
+在虚拟环境激活状态下执行：
 ```bash
 uterm-server --host 0.0.0.0 --port 9527
 ```
+*(注：如果未激活虚拟环境，可使用直接路径运行，如 `.\.venv\Scripts\uterm-server.exe` 或 `.\.venv\bin\uterm-server`)*
 
 常用选项：
 - `--heartbeat-timeout 15`：设置心跳超时时间
@@ -172,15 +181,64 @@ uterm-server --host 0.0.0.0 --port 9527
 
 #### 启动 GUI 客户端
 
+在虚拟环境激活状态下执行：
 ```bash
 uterm-gui
 ```
+*(注：同理，如果遇到找不到命令的情况，可使用 `.\.venv\Scripts\uterm-gui.exe` 或 `.\.venv\bin\uterm-gui` 直接运行)*
 
 **操作步骤：**
 1. 输入服务端的 IP、端口，以及一个独一无二的**客户端 ID**。
 2. 点击 **连接**。
 3. 在右侧的终端面板中直接输入命令，或点击左侧的快速命令按钮。
 4. 使用 `Ctrl+C` 可中断正在运行的长耗时命令。
+
+### 🌐 远端服务器部署与端口开放
+
+如果将服务端部署在云服务器（如阿里云、腾讯云、AWS 等）上，请务必在网络策略中**放行 UDP 端口**（默认 `9527`），否则客户端连接时将出现超时。
+
+1. **云服务商安全组设置**
+   进入您的云服务器控制台 -> 安全组/防火墙规则 -> 添加一条**入方向 (Inbound)** 规则：
+   - 协议：`UDP`
+   - 端口/端口范围：`9527`
+   - 授权对象（源 IP）：`0.0.0.0/0` (或您的特定访问 IP)
+
+2. **服务器系统防火墙设置**
+   - **Ubuntu / Debian (ufw)**:
+     ```bash
+     sudo ufw allow 9527/udp
+     ```
+   - **CentOS / RHEL (firewalld)**:
+     ```bash
+     sudo firewall-cmd --zone=public --add-port=9527/udp --permanent
+     sudo firewall-cmd --reload
+     ```
+   - **iptables**:
+     ```bash
+     sudo iptables -A INPUT -p udp --dport 9527 -j ACCEPT
+     ```
+
+### 🧭 主机信息面板
+
+GUI 终端区域左侧提供主机信息展示区，信息由服务端周期性返回并在客户端渲染：
+
+- 主机名 / 用户名 / 当前路径 / 时间戳
+
+### 🧩 管理 API（OpenAPI）
+
+安装 API 依赖后可启动管理 API（包含 Swagger UI 与 OpenAPI 3.0 输出）：
+
+```bash
+pip install -e .[api]
+uterm-api --host 0.0.0.0 --port 8080 --udp-host 0.0.0.0 --udp-port 9527
+```
+
+- Swagger UI：`http://<server-ip>:8080/docs`
+- OpenAPI：`http://<server-ip>:8080/openapi.json`
+
+### 🐳 Docker 部署
+
+参见 [DEPLOYMENT.md](file:///d:/Ryan/Desktop/Uterm/docs/DEPLOYMENT.md)。
 
 ### 💡 使用示例
 
