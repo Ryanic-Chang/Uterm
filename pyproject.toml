@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling>=1.25.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uterm"
+version = "0.1.0"
+description = "A reliable remote terminal built on top of UDP with a modern Python GUI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Uterm Contributors" }
+]
+keywords = ["udp", "terminal", "arq", "pty", "gui", "remote-shell"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: System :: Networking",
+  "Topic :: Terminals",
+]
+dependencies = [
+  "customtkinter>=5.2.2",
+  "pyte>=0.8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.0",
+]
+
+[project.scripts]
+uterm-gui = "uterm.app:main"
+uterm-server = "uterm.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uterm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
