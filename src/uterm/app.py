@@ -17,11 +17,19 @@ class UtermApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
 
         self.title("Uterm")
         self.geometry("1280x820")
         self.minsize(1080, 720)
+        self.configure(fg_color="#121212") # Neutral deep dark background
+
+        # Set default font for the entire application
+        self.default_font = ctk.CTkFont(family="Segoe UI", size=13)
+        self.bold_font = ctk.CTkFont(family="Segoe UI", size=14, weight="bold")
+        self.title_font = ctk.CTkFont(family="Segoe UI", size=28, weight="bold")
+        self.subtitle_font = ctk.CTkFont(family="Segoe UI", size=15, weight="bold")
+        self.header_font = ctk.CTkFont(family="Segoe UI", size=22, weight="bold")
+        self.terminal_font = ctk.CTkFont(family="Cascadia Mono", size=14)
 
         self.connection: ClientConnection | None = None
         self.event_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
@@ -46,31 +54,33 @@ class UtermApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=4)
         self.grid_rowconfigure(0, weight=1)
 
-        sidebar = ctk.CTkFrame(self, corner_radius=18)
+        sidebar = ctk.CTkFrame(self, corner_radius=18, fg_color="#1E1E1E")
         sidebar.grid(row=0, column=0, sticky="nsew", padx=(18, 10), pady=18)
         sidebar.grid_columnconfigure(0, weight=1)
 
-        content = ctk.CTkFrame(self, corner_radius=18)
+        content = ctk.CTkFrame(self, corner_radius=18, fg_color="#1E1E1E")
         content.grid(row=0, column=1, sticky="nsew", padx=(10, 18), pady=18)
         content.grid_columnconfigure(0, weight=1)
         content.grid_rowconfigure(1, weight=1)
 
         ctk.CTkLabel(
             sidebar,
-            text="Uterm",
-            font=ctk.CTkFont(size=28, weight="bold"),
+            text="🚀 Uterm",
+            font=self.title_font,
+            text_color="#FF79C6" # Dracula Pink
         ).grid(row=0, column=0, sticky="w", padx=20, pady=(20, 4))
         ctk.CTkLabel(
             sidebar,
             text="Reliable Remote Terminal over UDP",
-            text_color=("gray30", "gray75"),
+            font=self.default_font,
+            text_color="#A0A0A0",
         ).grid(row=1, column=0, sticky="w", padx=20, pady=(0, 20))
 
-        self.host_entry = self._labeled_entry(sidebar, "服务端地址", "127.0.0.1", row=2)
-        self.port_entry = self._labeled_entry(sidebar, "端口", "9527", row=4)
+        self.host_entry = self._labeled_entry(sidebar, "🌐 服务端地址", "127.0.0.1", row=2)
+        self.port_entry = self._labeled_entry(sidebar, "🔌 端口", "9527", row=4)
         self.client_id_entry = self._labeled_entry(
             sidebar,
-            "客户端 ID",
+            "🆔 客户端 ID",
             str(random.randint(1001, 9999)),
             row=6,
         )
@@ -79,24 +89,35 @@ class UtermApp(ctk.CTk):
         button_frame.grid(row=8, column=0, sticky="ew", padx=20, pady=(12, 10))
         button_frame.grid_columnconfigure((0, 1), weight=1)
 
-        self.connect_button = ctk.CTkButton(button_frame, text="连接", command=self.connect)
+        self.connect_button = ctk.CTkButton(
+            button_frame, 
+            text="▶ 连接", 
+            font=self.bold_font, 
+            command=self.connect,
+            fg_color="#50FA7B", # Dracula Green
+            hover_color="#40C863", 
+            text_color="#282A36"
+        )
         self.connect_button.grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.disconnect_button = ctk.CTkButton(
             button_frame,
-            text="断开",
+            text="⏹ 断开",
+            font=self.bold_font,
             command=self.disconnect,
-            fg_color="#374151",
-            hover_color="#4B5563",
+            fg_color="#FF5555", # Dracula Red
+            hover_color="#CC4444",
+            text_color="#282A36"
         )
         self.disconnect_button.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
         ctk.CTkLabel(
             sidebar,
-            text="快速命令",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            text="⚡ 快速命令",
+            font=self.subtitle_font,
+            text_color="#F1FA8C" # Dracula Yellow
         ).grid(row=9, column=0, sticky="w", padx=20, pady=(18, 8))
 
-        quick_frame = ctk.CTkFrame(sidebar)
+        quick_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
         quick_frame.grid(row=10, column=0, sticky="ew", padx=20)
         quick_frame.grid_columnconfigure((0, 1), weight=1)
 
@@ -112,17 +133,22 @@ class UtermApp(ctk.CTk):
             ctk.CTkButton(
                 quick_frame,
                 text=label,
+                font=self.default_font,
                 height=34,
+                fg_color="#BD93F9", # Dracula Purple
+                hover_color="#9A76C8", 
+                text_color="#282A36",
                 command=lambda value=command: self.send_command(value),
             ).grid(row=row, column=column, sticky="ew", padx=6, pady=6)
 
         ctk.CTkLabel(
             sidebar,
-            text="状态日志",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            text="📋 状态日志",
+            font=self.subtitle_font,
+            text_color="#8BE9FD" # Dracula Cyan
         ).grid(row=11, column=0, sticky="w", padx=20, pady=(18, 8))
 
-        self.log_box = ctk.CTkTextbox(sidebar, corner_radius=14, height=220)
+        self.log_box = ctk.CTkTextbox(sidebar, corner_radius=14, height=220, font=self.default_font, fg_color="#282A36", text_color="#F8F8F2")
         self.log_box.grid(row=12, column=0, sticky="nsew", padx=20, pady=(0, 20))
         sidebar.grid_rowconfigure(12, weight=1)
         self._append_log("等待连接。")
@@ -133,52 +159,57 @@ class UtermApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text="Remote Terminal",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            text="💻 Remote Terminal",
+            font=self.header_font,
+            text_color="#BD93F9" # Dracula Purple
         ).grid(row=0, column=0, sticky="w")
         self.status_label = ctk.CTkLabel(
             header,
-            text="未连接",
-            text_color="#F59E0B",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            text="🔴 未连接",
+            text_color="#FFB86C", # Dracula Orange
+            font=self.bold_font,
         )
         self.status_label.grid(row=0, column=1, sticky="e")
 
-        terminal_card = ctk.CTkFrame(content, corner_radius=16)
+        terminal_card = ctk.CTkFrame(content, corner_radius=16, fg_color="#282A36")
         terminal_card.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 18))
         terminal_card.grid_rowconfigure(1, weight=1)
         terminal_card.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
             terminal_card,
-            text="交互终端",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            text="⌨️ 交互终端",
+            font=self.subtitle_font,
+            text_color="#FF79C6" # Dracula Pink
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 8), columnspan=2)
 
-        info_panel = ctk.CTkFrame(terminal_card, corner_radius=14)
+        info_panel = ctk.CTkFrame(terminal_card, corner_radius=14, fg_color="#1E1E1E")
         info_panel.grid(row=1, column=0, sticky="nsw", padx=(16, 10), pady=(0, 16))
         info_panel.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
             info_panel,
-            text="主机信息",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            text="🔍 主机信息",
+            font=self.bold_font,
+            text_color="#50FA7B" # Dracula Green
         ).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 8))
 
         self._info_labels: dict[str, ctk.CTkLabel] = {}
-        self._info_labels["hostname"] = self._info_row(info_panel, 1, "主机名", self._info["hostname"])
-        self._info_labels["username"] = self._info_row(info_panel, 2, "用户名", self._info["username"])
-        self._info_labels["cwd"] = self._info_row(info_panel, 3, "路径", self._info["cwd"])
-        self._info_labels["timestamp"] = self._info_row(info_panel, 4, "时间", self._info["timestamp"])
+        self._info_labels["hostname"] = self._info_row(info_panel, 1, "🖥️ 主机名", self._info["hostname"])
+        self._info_labels["username"] = self._info_row(info_panel, 2, "👤 用户名", self._info["username"])
+        self._info_labels["cwd"] = self._info_row(info_panel, 3, "📁 路径", self._info["cwd"])
+        self._info_labels["timestamp"] = self._info_row(info_panel, 4, "⏱️ 时间", self._info["timestamp"])
         self._info_labels["local"] = self._info_row(
-            info_panel, 5, "本地", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            info_panel, 5, "🏠 本地", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
         self.terminal = ctk.CTkTextbox(
             terminal_card,
             wrap="word",
             corner_radius=14,
-            font=ctk.CTkFont(family="Cascadia Mono", size=13),
+            font=self.terminal_font,
+            fg_color="#121212",
+            text_color="#F8F8F2"
         )
         self.terminal.grid(row=1, column=1, sticky="nsew", padx=(10, 16), pady=(0, 16))
         self.terminal.configure(state="normal")
@@ -218,9 +249,10 @@ class UtermApp(ctk.CTk):
         ctk.CTkLabel(
             parent,
             text=label,
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=self.bold_font,
+            text_color="#8BE9FD" # Dracula Cyan
         ).grid(row=row, column=0, sticky="w", padx=20, pady=(0, 6))
-        entry = ctk.CTkEntry(parent)
+        entry = ctk.CTkEntry(parent, font=self.default_font, fg_color="#282A36", border_color="#44475A", text_color="#F8F8F2")
         entry.grid(row=row + 1, column=0, sticky="ew", padx=20)
         entry.insert(0, value)
         return entry
@@ -351,10 +383,10 @@ class UtermApp(ctk.CTk):
         self.log_box.see("end")
 
     def _info_row(self, parent: ctk.CTkBaseClass, row: int, key: str, value: str) -> ctk.CTkLabel:
-        ctk.CTkLabel(parent, text=key, text_color=("gray35", "gray75")).grid(
+        ctk.CTkLabel(parent, text=key, text_color="#8BE9FD").grid( # Dracula Cyan
             row=row * 2 - 1, column=0, sticky="w", padx=12, pady=(8, 2)
         )
-        label = ctk.CTkLabel(parent, text=value, justify="left")
+        label = ctk.CTkLabel(parent, text=value, justify="left", text_color="#F8F8F2")
         label.grid(row=row * 2, column=0, sticky="w", padx=12, pady=(0, 2))
         return label
 
@@ -401,13 +433,13 @@ class UtermApp(ctk.CTk):
     def _update_status_label(self, message: str) -> None:
         connected = self.connection is not None
         self.status_label.configure(
-            text=message,
+            text=f"🟢 {message}" if connected else f"🔴 {message}",
             text_color=("#10B981" if connected else "#F59E0B"),
         )
 
     def _set_connection_state(self, connected: bool) -> None:
         self.status_label.configure(
-            text="已连接" if connected else "未连接",
+            text="🟢 已连接" if connected else "🔴 未连接",
             text_color=("#10B981" if connected else "#F59E0B"),
         )
         self.connect_button.configure(state="disabled" if connected else "normal")
