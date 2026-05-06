@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import queue
 import random
+import socket
 import tkinter.font as tkfont
 from typing import Any
 
@@ -262,6 +263,12 @@ class UtermApp(ctk.CTk):
             self._append_log("连接已存在。")
             return
 
+        host = self.host_entry.get().strip()
+
+        if not host:
+            self._append_log("服务器地址不能为空。")
+            return
+
         try:
             port = int(self.port_entry.get())
             client_id = int(self.client_id_entry.get())
@@ -269,16 +276,46 @@ class UtermApp(ctk.CTk):
             self._append_log("端口和客户端 ID 必须是整数。")
             return
 
-        self.connection = ClientConnection(
-            self.host_entry.get().strip(),
+        if not (1 <= port <= 65535):
+            self._append_log("端口号必须在 1 到 65535 之间。")
+            return
+
+        if client_id <= 0:
+            self._append_log("客户端 ID 必须是正整数。")
+            return
+
+        try:
+            socket.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
+        except OSError:
+            self._append_log("服务器地址无效，请检查 IP 或域名。")
+            return
+
+        connection = ClientConnection(
+            host,
             port,
             client_id,
             on_output=lambda data: self.event_queue.put(("output", data)),
             on_status=lambda message: self.event_queue.put(("status", message)),
         )
+
+        self._append_log(f"正在连接 udp://{host}:{port} ...")
+
+        try:
+            if not connection.probe_server(timeout=0.8, retries=3):
+                connection.close()
+                self._append_log("连接失败：未收到服务端 ACK，请检查服务器 IP、端口、防火墙或服务端是否已启动。")
+                return
+        except OSError as exc:
+            connection.close()
+            self._append_log(f"连接失败：{exc}")
+            return
+
+        self.connection = connection
         self.connection.start()
+
         rows, columns = self._terminal_size
         self.connection.send_resize(rows, columns)
+
         self._set_connection_state(True)
         self.focus_terminal()
 

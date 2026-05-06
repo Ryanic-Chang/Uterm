@@ -59,6 +59,54 @@ class ClientConnection:
         self._send_queue: queue.Queue[tuple[MessageType, bytes, bool]] = queue.Queue(maxsize=4096)
         self._consecutive_send_failures = 0
         self._reconnect_in_progress = False
+    
+    def probe_server(self, *, timeout: float = 0.8, retries: int = 3) -> bool:
+        """连接前探测服务端是否可达：发送 HEARTBEAT，等待对应 ACK。"""
+        probe_sequence = 0
+        packet = Packet(
+            message_type=MessageType.HEARTBEAT,
+            sequence=probe_sequence,
+            client_id=self.client_id,
+            payload=b"",
+        )
+        datagram = packet.encode()
+
+        with self._socket_lock:
+            sock = self.sock
+            old_timeout = sock.gettimeout()
+
+            try:
+                sock.settimeout(timeout)
+
+                for _ in range(retries):
+                    try:
+                        sock.sendto(datagram, self.server_addr)
+
+                        while True:
+                            data, addr = sock.recvfrom(2048)
+
+                            if addr != self.server_addr:
+                                continue
+
+                            try:
+                                reply = Packet.decode(data)
+                            except ProtocolError:
+                                continue
+
+                            if (
+                                reply.client_id == self.client_id
+                                and reply.message_type is MessageType.ACK
+                                and reply.sequence == probe_sequence
+                            ):
+                                return True
+
+                    except socket.timeout:
+                        continue
+
+                return False
+
+            finally:
+                sock.settimeout(old_timeout)
 
     def start(self) -> None:
         self._threads = [
